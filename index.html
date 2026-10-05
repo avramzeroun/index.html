@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Astro Bird - Galaxy Edition</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #0b0b1a;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 25px rgba(138, 43, 226, 0.4);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        canvas {
+            background: linear-gradient(to bottom, #050515, #1a0b2e);
+            display: block;
+        }
+
+        .ui-panel {
+            position: absolute;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 28px;
+            font-weight: bold;
+            pointer-events: none;
+            text-shadow: 0 0 8px rgba(0, 255, 255, 0.8);
+        }
+
+        #game-over-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(10, 5, 20, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+
+        #game-over-screen h1 {
+            color: #ff0055;
+            margin: 0;
+            font-size: 32px;
+            text-shadow: 0 0 10px #ff0055;
+        }
+
+        button {
+            padding: 12px 28px;
+            font-size: 16px;
+            font-weight: bold;
+            color: #fff;
+            background: linear-gradient(45deg, #ff007f, #7928ca);
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            box-shadow: 0 0 12px rgba(255, 0, 127, 0.5);
+            transition: transform 0.2s;
+        }
+
+        button:hover {
+            transform: scale(1.08);
+        }
+
+        .controls-info {
+            margin-top: 15px;
+            color: #8a8aab;
+            font-size: 14px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div class="ui-panel">
+            <span id="score">0</span>
+        </div>
+
+        <div id="game-over-screen" class="hidden">
+            <h1 id="screen-title">ASTRO BIRD</h1>
+            <p>Skor Terbaik: <span id="high-score">0</span></p>
+            <p id="current-score-text" class="hidden">Skor Saat Ini: <span id="final-score">0</span></p>
+            <button id="start-btn" onclick="startGame()">Mulai Main</button>
+        </div>
+
+        <canvas id="gameCanvas" width="360" height="540"></canvas>
+    </div>
+
+    <div class="controls-info">
+        Tekan <b>SPASI</b> atau <b>Klik Layar</b> untuk Lompat
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        const scoreEl = document.getElementById("score");
+        const finalScoreEl = document.getElementById("final-score");
+        const highScoreEl = document.getElementById("high-score");
+        const gameOverScreen = document.getElementById("game-over-screen");
+        const screenTitle = document.getElementById("screen-title");
+        const currentScoreText = document.getElementById("current-score-text");
+        const startBtn = document.getElementById("start-btn");
+
+        let score = 0;
+        let highScore = localStorage.getItem("astro_high_score") || 0;
+        highScoreEl.textContent = highScore;
+
+        let isGameOver = true;
+        let animationId;
+        let frameCount = 0;
+
+        // Karakter Astronot
+        const bird = {
+            x: 50,
+            y: 250,
+            radius: 12,
+            velocity: 0,
+            gravity: 0.35,
+            jump: -6.5
+        };
+
+        let pipes = [];
+        let stars = [];
+
+        // Generasi Bintang Latar Belakang
+        for (let i = 0; i < 40; i++) {
+            stars.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                size: Math.random() * 2,
+                speed: Math.random() * 0.5 + 0.2
+            });
+        }
+
+        // Input Kontrol
+        function handleJump() {
+            if (isGameOver) return;
+            bird.velocity = bird.jump;
+        }
+
+        window.addEventListener("keydown", (e) => {
+            if (e.code === "Space") handleJump();
+        });
+        canvas.addEventListener("click", handleJump);
+
+        function createPipe() {
+            const gap = 130;
+            const minHeight = 50;
+            const maxHeight = canvas.height - gap - minHeight;
+            const topHeight = Math.floor(Math.random() * (maxHeight - minHeight + 1)) + minHeight;
+
+            pipes.push({
+                x: canvas.width,
+                top: topHeight,
+                bottom: canvas.height - topHeight - gap,
+                width: 45,
+                passed: false
+            });
+        }
+
+        function update() {
+            frameCount++;
+
+            // Update Bintang
+            stars.forEach(star => {
+                star.x -= star.speed;
+                if (star.x < 0) star.x = canvas.width;
+            });
+
+            // Fisika Karakter
+            bird.velocity += bird.gravity;
+            bird.y += bird.velocity;
+
+            // Batas Atas dan Bawah
+            if (bird.y + bird.radius >= canvas.height || bird.y - bird.radius <= 0) {
+                endGame();
+            }
+
+            // Pipa
+            if (frameCount % 90 === 0) {
+                createPipe();
+            }
+
+            pipes.forEach((pipe, index) => {
+                pipe.x -= 2;
+
+                // Deteksi Tabrakan
+                const inPipeX = bird.x + bird.radius > pipe.x && bird.x - bird.radius < pipe.x + pipe.width;
+                const hitTop = bird.y - bird.radius < pipe.top;
+                const hitBottom = bird.y + bird.radius > canvas.height - pipe.bottom;
+
+                if (inPipeX && (hitTop || hitBottom)) {
+                    endGame();
+                }
+
+                // Tambah Skor
+                if (pipe.x + pipe.width < bird.x && !pipe.passed) {
+                    score++;
+                    scoreEl.textContent = score;
+                    pipe.passed = true;
+                }
+
+                // Hapus Pipa Lewat
+                if (pipe.x + pipe.width < 0) {
+                    pipes.splice(index, 1);
+                }
+            });
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Gambar Bintang
+            ctx.fillStyle = "#ffffff";
+            stars.forEach(star => {
+                ctx.fillRect(star.x, star.y, star.size, star.size);
+            });
+
+            // Gambar Pipa Galaksi
+            pipes.forEach(pipe => {
+                // Pipa Atas
+                ctx.fillStyle = "#00ffcc";
+                ctx.fillRect(pipe.x, 0, pipe.width, pipe.top);
+                ctx.fillStyle = "#00b386";
+                ctx.fillRect(pipe.x - 2, pipe.top - 12, pipe.width + 4, 12);
+
+                // Pipa Bawah
+                ctx.fillStyle = "#00ffcc";
+                ctx.fillRect(pipe.x, canvas.height - pipe.bottom, pipe.width, pipe.bottom);
+                ctx.fillStyle = "#00b386";
+                ctx.fillRect(pipe.x - 2, canvas.height - pipe.bottom, pipe.width + 4, 12);
+            });
+
+            // Gambar Karakter (Astronot Helm Bulat)
+            ctx.beginPath();
+            ctx.arc(bird.x, bird.y, bird.radius, 0, Math.PI * 2);
+            ctx.fillStyle = "#ffffff";
+            ctx.fill();
+            ctx.closePath();
+
+            // Kaca Helm
+            ctx.beginPath();
+            ctx.arc(bird.x + 4, bird.y - 2, 6, 0, Math.PI * 2);
+            ctx.fillStyle = "#00d2ff";
+            ctx.fill();
+            ctx.closePath();
+        }
+
+        function gameLoop() {
+            if (!isGameOver) {
+                update();
+                draw();
+                animationId = requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function startGame() {
+            score = 0;
+            bird.y = 250;
+            bird.velocity = 0;
+            pipes = [];
+            frameCount = 0;
+            isGameOver = false;
+
+            scoreEl.textContent = score;
+            gameOverScreen.classList.add("hidden");
+
+            cancelAnimationFrame(animationId);
+            gameLoop();
+        }
+
+        function endGame() {
+            isGameOver = true;
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem("astro_high_score", highScore);
+            }
+            
+            highScoreEl.textContent = highScore;
+            finalScoreEl.textContent = score;
+            screenTitle.textContent = "GAME OVER";
+            startBtn.textContent = "Coba Lagi";
+            currentScoreText.classList.remove("hidden");
+            gameOverScreen.classList.remove("hidden");
+        }
+
+        // Tampilan Awal
+        draw();
+    </script>
+</body>
+</html>
